@@ -19,7 +19,7 @@ hidden_dims = [768]
 latent_dim = 512
 k = 5
 lambda_rank = 1.0
-lambda_pairdist = 0.01  
+lambda_pairdist = 0.3
 lr = 1e-3
 epochs = 1000
 
