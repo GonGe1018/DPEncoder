@@ -2,14 +2,14 @@ import torch
 from torch.utils.data import DataLoader
 from test_dataset import WikiEmbeddingDataset
 from model import DPEncoder
-from loss import DPLoss
+from loss import DPLoss, DPLossV2
 
 
 device = torch.device("mps" if torch.cuda.is_available() else "cpu")
-data_path = "wikipedia-korean-20221001-embeddings-1k.jsonl"
+data_path = "wikipedia-korean-cohere-embeddings-100k.jsonl"
 
 
-batch_size = 64 
+batch_size = 512 
 
 dataset = WikiEmbeddingDataset(data_path)
 loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
@@ -21,10 +21,11 @@ k = 5
 lambda_rank = 1.0
 lambda_pairdist = 0.3
 lr = 1e-3
-epochs = 1000
+epochs = 100
 
 model = DPEncoder(input_dim, hidden_dims, latent_dim).to(device)
-criterion = DPLoss(k=k, lambda_rank=lambda_rank, lambda_pairdist=lambda_pairdist).to(device)
+# criterion = DPLoss(k=k, lambda_rank=lambda_rank, lambda_pairdist=lambda_pairdist).to(device)
+criterion = DPLossV2(k=k, lambda_rank=lambda_rank, lambda_pairdist=lambda_pairdist).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
 for epoch in range(epochs):

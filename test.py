@@ -34,7 +34,7 @@ def plot_tsne(x, z, num_samples=300, random_seed=42):
     plt.show()
 
 if __name__ == "__main__":
-    data_path = "wikipedia-korean-20221001-embeddings-1k.jsonl"
+    data_path = "wikipedia-korean-cohere-embeddings-100k.jsonl"
     model_path = "dpae.pth"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     hidden_dims = [768]
