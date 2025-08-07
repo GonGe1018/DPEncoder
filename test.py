@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
-from test_dataset import WikiEmbeddingDataset
+from wiki_dataset import WikiEmbeddingDataset
 from model import DPEncoder 
 
 def knn_recall_at_k(x, z, k=10):
