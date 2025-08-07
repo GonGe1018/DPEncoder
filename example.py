@@ -1,5 +1,10 @@
 from model import DPEncoder
 import torch
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 def how_to_use_dpae():
 
@@ -7,7 +12,8 @@ def how_to_use_dpae():
     hidden_dims = [768]
     latent_dim = 512
     model_path = "/example/dpae.pth"
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(os.getenv('DEVICE', 'cpu'))
+    print(f"Using device: {device}")
     data_size = 1000
 
     model = DPEncoder(input_dim, hidden_dims, latent_dim)

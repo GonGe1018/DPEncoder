@@ -1,18 +1,27 @@
 import torch
+import os
+from dotenv import load_dotenv
 from torch.utils.data import DataLoader
-from test_dataset import WikiEmbeddingDataset
+from wiki_dataset import WikiEmbeddingDataset
 from model import DPEncoder
 from loss import DPLoss, DPLossV2
 
+# Load environment variables
+load_dotenv()
 
-device = torch.device("mps" if torch.cuda.is_available() else "cpu")
-data_path = "wikipedia-korean-cohere-embeddings-100k.jsonl"
+device = torch.device(os.getenv('DEVICE', 'cpu'))
+print(f"Using device: {device}")
+data_path = "wikipedia-22-12-ko-embeddings-100k.parquet"
 
 
 batch_size = 512 
 
+print(f"Batch size: {batch_size}")
+print("loading dataset...")
 dataset = WikiEmbeddingDataset(data_path)
 loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+print(f"Dataset size: {len(dataset)}")
+print("loaded dataset")
 
 input_dim = dataset[0].shape[0]
 hidden_dims = [768]
