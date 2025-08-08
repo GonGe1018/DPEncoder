@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 
-class DPLoss(nn.Module):
+class DPLossV1(nn.Module):
     def __init__(self, k=32, lambda_rank=1.0, lambda_pairdist=0.0):
         super().__init__()
         self.k = k
@@ -49,6 +49,64 @@ class DPLossV2(nn.Module):
         # 미분 가능한 Soft Rank 적용
         rank_x = self.soft_rank(dist_x)
         rank_z = self.soft_rank(dist_z)
+        rank_loss = F.mse_loss(rank_z, rank_x)
+
+        # 쌍별 거리값 차이 손실
+        pairdist_loss = F.mse_loss(dist_z, dist_x) if self.lambda_pairdist > 0.0 else 0.0
+
+        total = self.lambda_rank * rank_loss + self.lambda_pairdist * pairdist_loss
+        return total, rank_loss, pairdist_loss
+    
+class DPLossV1Norm(nn.Module):
+    def __init__(self, k=32, lambda_rank=1.0, lambda_pairdist=0.0):
+        super().__init__()
+        self.k = k
+        self.lambda_rank = lambda_rank
+        self.lambda_pairdist = lambda_pairdist
+
+    def forward(self, x, z):
+        # 순위 기반 손실
+        dist_x = torch.cdist(x, x, p=2)
+        dist_z = torch.cdist(z, z, p=2)
+        rank_x = dist_x.argsort(dim=1).argsort(dim=1).float()  # rank_matrix
+        rank_z = dist_z.argsort(dim=1).argsort(dim=1).float()  # rank_matrix
+
+        # 정규화만 추가 (0..N-1 -> 0..1)
+        n = x.size(0)
+        denom = max(n - 1, 1)
+        rank_x = rank_x / denom
+        rank_z = rank_z / denom
+
+        rank_loss = (rank_x - rank_z).abs().mean() / self.k
+
+        # 쌍별 거리값 차이 손실
+        pairdist_loss = F.mse_loss(dist_z, dist_x) if self.lambda_pairdist > 0.0 else 0.0
+
+        total = self.lambda_rank * rank_loss + self.lambda_pairdist * pairdist_loss
+        return total, rank_loss, pairdist_loss
+    
+class DPLossV2Norm(nn.Module):
+    def __init__(self, k=32, lambda_rank=1.0, lambda_pairdist=0.0, tau=1.0):
+        super().__init__()
+        self.k = k
+        self.lambda_rank = lambda_rank
+        self.lambda_pairdist = lambda_pairdist
+        self.soft_rank = SoftRank(tau)
+
+    def forward(self, x, z):
+        dist_x = torch.cdist(x, x, p=2)
+        dist_z = torch.cdist(z, z, p=2)
+
+        # 미분 가능한 Soft Rank 적용
+        rank_x = self.soft_rank(dist_x)
+        rank_z = self.soft_rank(dist_z)
+
+        # 정규화만 추가 (1..N -> 0..1)
+        n = x.size(0)
+        denom = max(n - 1, 1)
+        rank_x = (rank_x - 1.0) / denom
+        rank_z = (rank_z - 1.0) / denom
+
         rank_loss = F.mse_loss(rank_z, rank_x)
 
         # 쌍별 거리값 차이 손실
