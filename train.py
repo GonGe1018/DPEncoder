@@ -67,6 +67,8 @@ def parse_args():
                        choices=["DPLossV1", "DPLossV1Norm", "DPLossV2", "DPLossV2Norm"],
                        help="Loss function to use")
     parser.add_argument("--tau", type=float, default=1.0, help="Temperature for soft ranking (V2 losses)")
+    parser.add_argument("--lambda-rank", type=float, default=1.0, help="Weight for rank loss")
+    parser.add_argument("--lambda-pairdist", type=float, default=0.3, help="Weight for pair distance loss")
     return parser.parse_args()
 
 # Load environment variables
@@ -102,8 +104,8 @@ input_dim = 1024  # 임베딩 차원
 hidden_dims = [768]
 latent_dim = args.latent_dim
 k = 5
-lambda_rank = 1.0
-lambda_pairdist = 0.3
+lambda_rank = args.lambda_rank
+lambda_pairdist = args.lambda_pairdist
 lr = args.lr
 epochs = args.epochs
 save_interval = args.save_interval
