@@ -3,11 +3,7 @@ import json
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-from glob import glob
-import torch
 from datetime import timedelta
-from wiki_dataset import WikiEmbeddingDataset
-from model import DPEncoder
 
 def load_experiment_data(checkpoint_dir):
     """체크포인트 디렉토리에서 실험 데이터 로드"""
@@ -29,184 +25,6 @@ def load_experiment_data(checkpoint_dir):
         train_history = json.load(f)
     
     return config, train_history
-
-def knn_recall_at_k(x, z, k=10, batch_size=1000):
-    """메모리 효율적인 KNN recall 계산 (배치 처리)"""
-    n = x.shape[0]
-    overlaps = []
-    
-    for i in range(0, n, batch_size):
-        end_i = min(i + batch_size, n)
-        batch_x = x[i:end_i]
-        batch_z = z[i:end_i]
-        
-        # 현재 배치에 대해 전체 데이터셋과의 거리 계산
-        dx_batch = torch.cdist(batch_x, x)  # [batch_size, n]
-        dz_batch = torch.cdist(batch_z, z)  # [batch_size, n]
-        
-        # k+1 nearest neighbors 찾기 (자기 자신 포함)
-        _, idx_x_batch = dx_batch.topk(k+1, largest=False)
-        _, idx_z_batch = dz_batch.topk(k+1, largest=False)
-        
-        # 자기 자신 제외 (첫 번째 요소는 항상 자기 자신)
-        idx_x_batch = idx_x_batch[:, 1:].cpu().numpy()
-        idx_z_batch = idx_z_batch[:, 1:].cpu().numpy()
-        
-        # 배치 내 각 샘플에 대해 overlap 계산
-        for a, b in zip(idx_x_batch, idx_z_batch):
-            overlaps.append(len(set(a) & set(b)) / k)
-    
-    return np.mean(overlaps)
-
-def calculate_recall_for_checkpoint(checkpoint_dir, X, config, model_file="latest_model.pth"):
-    """체크포인트 모델로 recall 계산 (데이터셋 재사용 버전)"""
-    try:
-        # 모델 파일 경로
-        model_path = os.path.join(checkpoint_dir, model_file)
-        if not os.path.exists(model_path):
-            print(f"Model not found: {model_path}")
-            return None
-        
-        # 디바이스 설정
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # 모델 로드 및 추론
-        input_dim = X.shape[1]
-        hidden_dims = config.get('hidden_dims', [768])
-        latent_dim = config.get('latent_dim', 512)
-        
-        model = DPEncoder(input_dim, hidden_dims, latent_dim)
-        
-        # 체크포인트 파일 로드 방식 구분
-        checkpoint = torch.load(model_path, map_location=device)
-        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-            # 전체 체크포인트 파일인 경우
-            model.load_state_dict(checkpoint['model_state_dict'])
-        else:
-            # 모델 state dict만 있는 경우 (latest_model.pth)
-            model.load_state_dict(checkpoint)
-        
-        model = model.to(device)
-        model.eval()
-        
-        with torch.no_grad():
-            Z = model(X)
-        
-        # Recall 계산
-        k = config.get('k', 5)
-        recall = knn_recall_at_k(X, Z, k, batch_size=500)
-        
-        return recall
-        
-    except Exception as e:
-        print(f"Error calculating recall for {model_path}: {e}")
-        return None
-
-def calculate_recall_history(checkpoint_dir, data_path="wikipedia-22-12-ko-embeddings-100k.parquet"):
-    """에포크별 체크포인트로 recall 히스토리 계산"""
-    try:
-        # config 로드
-        config_path = os.path.join(checkpoint_dir, "config.json")
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        
-        # 데이터셋 한번만 로드
-        print("Loading dataset for recall calculation...")
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        num_test_samples = 3000  # 메모리 절약을 위해 3k로 줄임
-        dataset = WikiEmbeddingDataset(data_path)
-        
-        np.random.seed(42)
-        indices = np.random.choice(len(dataset), min(num_test_samples, len(dataset)), replace=False)
-        X = torch.stack([dataset[i] for i in indices]).to(device)
-        
-        # 저장된 체크포인트 파일들 찾기
-        checkpoint_files = glob(os.path.join(checkpoint_dir, "checkpoint_epoch_*.pth"))
-        if not checkpoint_files:
-            print(f"No checkpoint files found in {checkpoint_dir}")
-            return [], []
-        
-        # 에포크 번호 추출 및 정렬
-        epoch_recalls = []
-        for checkpoint_file in checkpoint_files:
-            filename = os.path.basename(checkpoint_file)
-            # checkpoint_epoch_001.pth에서 001 추출
-            epoch_str = filename.split('_')[-1].split('.')[0]
-            epoch = int(epoch_str)
-            
-            print(f"Calculating recall for epoch {epoch}...")
-            recall = calculate_recall_for_checkpoint(checkpoint_dir, X, config, filename)
-            if recall is not None:
-                epoch_recalls.append((epoch, recall))
-        
-        # 에포크 순으로 정렬
-        epoch_recalls.sort(key=lambda x: x[0])
-        
-        epochs = [er[0] for er in epoch_recalls]
-        recalls = [er[1] for er in epoch_recalls]
-        
-        return epochs, recalls
-        
-    except Exception as e:
-        print(f"Error calculating recall history: {e}")
-        return [], []
-
-def calculate_recall_for_checkpoint_simple(checkpoint_dir, data_path="wikipedia-22-12-ko-embeddings-100k.parquet", model_file="latest_model.pth"):
-    """체크포인트 모델로 recall 계산 (단순 버전)"""
-    try:
-        # config 로드
-        config_path = os.path.join(checkpoint_dir, "config.json")
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        
-        # 모델 파일 경로
-        model_path = os.path.join(checkpoint_dir, model_file)
-        if not os.path.exists(model_path):
-            print(f"Model not found: {model_path}")
-            return None
-        
-        # 디바이스 설정
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # 데이터셋 로드 (메모리 절약을 위해 샘플 수 제한)
-        num_test_samples = 5000  # 5k 샘플만 사용
-        dataset = WikiEmbeddingDataset(data_path)
-        
-        np.random.seed(42)
-        indices = np.random.choice(len(dataset), min(num_test_samples, len(dataset)), replace=False)
-        X = torch.stack([dataset[i] for i in indices]).to(device)
-        
-        # 모델 로드 및 추론
-        input_dim = X.shape[1]
-        hidden_dims = config.get('hidden_dims', [768])
-        latent_dim = config.get('latent_dim', 512)
-        
-        model = DPEncoder(input_dim, hidden_dims, latent_dim)
-        
-        # 체크포인트 파일 로드 방식 구분
-        checkpoint = torch.load(model_path, map_location=device)
-        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-            # 전체 체크포인트 파일인 경우
-            model.load_state_dict(checkpoint['model_state_dict'])
-        else:
-            # 모델 state dict만 있는 경우 (latest_model.pth)
-            model.load_state_dict(checkpoint)
-        
-        model = model.to(device)
-        model.eval()
-        
-        with torch.no_grad():
-            Z = model(X)
-        
-        # Recall 계산
-        k = config.get('k', 5)
-        recall = knn_recall_at_k(X, Z, k, batch_size=500)
-        
-        return recall
-        
-    except Exception as e:
-        print(f"Error calculating recall for {checkpoint_dir}: {e}")
-        return None
 
 def plot_training_curves(train_history, config, save_path=None, recall=None, recall_history=None):
     """학습 곡선 시각화"""
@@ -463,8 +281,7 @@ def main():
     parser.add_argument("--list", action="store_true", help="List available experiments")
     parser.add_argument("--save", type=str, help="Path to save the plot")
     parser.add_argument("--compare", action="store_true", help="Compare multiple experiments")
-    parser.add_argument("--no-recall", action="store_true", help="Skip recall calculation (faster)")
-    parser.add_argument("--recall-history", action="store_true", help="Calculate recall for each saved checkpoint")
+    parser.add_argument("--no-recall", action="store_true", help="Skip recall display (faster)")
     
     args = parser.parse_args()
     
@@ -473,7 +290,7 @@ def main():
         return
     
     if args.compare:
-        compare_experiments(skip_recall=args.no_recall, recall_history=args.recall_history)
+        compare_experiments(skip_recall=args.no_recall)
         return
     
     if args.experiment_id:
@@ -498,7 +315,7 @@ def main():
     try:
         config, train_history = load_experiment_data(checkpoint_dir)
         
-        # Recall 계산 (--no-recall 옵션이 없는 경우)
+        # 저장된 recall history 사용 (계산하지 않음)
         recall = None
         recall_history = None
         
@@ -511,12 +328,7 @@ def main():
                 recall_history = (recall_epochs, recall_values)
                 recall = recall_values[-1]  # 마지막 recall 값 사용
             else:
-                print("Calculating final recall...")
-                recall = calculate_recall_for_checkpoint_simple(checkpoint_dir)
-                
-                if args.recall_history:
-                    print("Calculating recall history for each checkpoint...")
-                    recall_history = calculate_recall_history(checkpoint_dir)
+                print("No saved recall history found. Train with newer version to get recall data.")
         
         print_experiment_summary(config, train_history, recall)
         
@@ -532,7 +344,7 @@ def main():
     except Exception as e:
         print(f"Unexpected error: {e}")
 
-def compare_experiments(skip_recall=False, recall_history=False):
+def compare_experiments(skip_recall=False):
     """여러 실험을 비교하는 함수"""
     experiments = list_experiments()
     if not experiments:
@@ -569,12 +381,9 @@ def compare_experiments(skip_recall=False, recall_history=False):
                         recall_hist = (recall_epochs, recall_values)
                         recall = recall_values[-1]  # 마지막 recall 값 사용
                     else:
-                        print(f"Calculating recall for {exp_id[:8]}...")
-                        recall = calculate_recall_for_checkpoint_simple(checkpoint_dir)
-                        
-                        if recall_history:
-                            print(f"Calculating recall history for {exp_id[:8]}...")
-                            recall_hist = calculate_recall_history(checkpoint_dir)
+                        print(f"No saved recall history found for {exp_id[:8]}...")
+                        recall = None
+                        recall_hist = None
                 
                 experiment_data.append((exp_id, config, train_history, recall, recall_hist))
             except Exception as e:
@@ -585,25 +394,22 @@ def compare_experiments(skip_recall=False, recall_history=False):
             return
         
         # 비교 그래프 생성
-        plot_comparison(experiment_data, include_recall_history=recall_history)
+        plot_comparison(experiment_data)
         
     except ValueError:
         print("Invalid input format.")
     except Exception as e:
         print(f"Error: {e}")
 
-def plot_comparison(experiment_data, include_recall_history=False):
+def plot_comparison(experiment_data):
     """여러 실험의 비교 그래프 생성"""
     
     # Recall 정보가 있는지 확인
     has_recall = any(len(data) > 3 and data[3] is not None for data in experiment_data)
-    has_recall_history = include_recall_history and any(len(data) > 4 and data[4] is not None and len(data[4][0]) > 0 for data in experiment_data)
+    has_recall_history = any(len(data) > 4 and data[4] is not None and len(data[4][0]) > 0 for data in experiment_data)
     
     if has_recall or has_recall_history:
-        if has_recall_history:
-            fig, axes = plt.subplots(3, 2, figsize=(16, 18))  # 3행 2열로 확장
-        else:
-            fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     else:
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     
@@ -659,11 +465,7 @@ def plot_comparison(experiment_data, include_recall_history=False):
                                fontsize=8, 
                                color=color)
         
-        # Recall history 그래프 (있는 경우)
-        if has_recall_history and recall_hist is not None and len(recall_hist[0]) > 0:
-            recall_epochs, recall_values = recall_hist
-            if has_recall_history:
-                axes[2, 0].plot(recall_epochs, recall_values, color=color, marker='o', linewidth=2, markersize=4, label=label)
+        # Recall history는 이미 axes[1, 1]에서 처리됨
     
     # 그래프 설정
     axes[0, 0].set_title('Total Loss Comparison (Log Scale)')
@@ -691,11 +493,18 @@ def plot_comparison(experiment_data, include_recall_history=False):
     axes[1, 1].legend()
     
     # Recall 정보가 있는 경우 추가 플롯
-    if has_recall and not has_recall_history:
-        # Recall 비교 바 차트 (recall history가 없는 경우)
+    if has_recall or has_recall_history:
+        # Recall 비교 바 차트
         exp_names = [f"{data[0][:8]}...\n({data[1].get('loss_function', 'Unknown')})" 
                     for data in experiment_data]
-        recall_values = [data[3] if len(data) > 3 and data[3] is not None else 0 for data in experiment_data]
+        recall_values = []
+        for data in experiment_data:
+            if len(data) > 4 and data[4] is not None and len(data[4][1]) > 0:
+                recall_values.append(data[4][1][-1])  # 마지막 recall 값
+            elif len(data) > 3 and data[3] is not None:
+                recall_values.append(data[3])  # 최종 recall 값
+            else:
+                recall_values.append(0)
         
         bars = axes[0, 2].bar(range(len(exp_names)), recall_values, color=colors[:len(experiment_data)])
         axes[0, 2].set_title('Final Recall Comparison')
@@ -762,39 +571,19 @@ def plot_comparison(experiment_data, include_recall_history=False):
         
         axes[1, 2].text(0.05, 0.95, summary_text, transform=axes[1, 2].transAxes, 
                        fontsize=9, verticalalignment='top', fontfamily='monospace')
-    
-    elif has_recall_history:
-        # Recall history 그래프 설정
-        axes[2, 0].set_title('Recall History Comparison')
-        axes[2, 0].set_xlabel('Epoch')
-        axes[2, 0].set_ylabel('Recall Score')
-        axes[2, 0].grid(True, alpha=0.3)
-        axes[2, 0].legend()
         
-        # 최종 recall 바 차트
-        exp_names = [f"{data[0][:8]}...\n({data[1].get('loss_function', 'Unknown')})" 
-                    for data in experiment_data]
-        recall_values = []
-        for data in experiment_data:
-            if len(data) > 4 and data[4] is not None and len(data[4][1]) > 0:
-                recall_values.append(data[4][1][-1])  # 마지막 recall 값
-            elif len(data) > 3 and data[3] is not None:
-                recall_values.append(data[3])  # 최종 recall 값
-            else:
-                recall_values.append(0)
-        
-        bars = axes[2, 1].bar(range(len(exp_names)), recall_values, color=colors[:len(experiment_data)])
-        axes[2, 1].set_title('Final Recall Comparison')
-        axes[2, 1].set_ylabel('Recall Score')
-        axes[2, 1].set_xticks(range(len(exp_names)))
-        axes[2, 1].set_xticklabels(exp_names, rotation=45, ha='right')
-        axes[2, 1].grid(True, alpha=0.3, axis='y')
-        
-        # 바 위에 값 표시
-        for bar, recall in zip(bars, recall_values):
-            if recall > 0:
-                axes[2, 1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                                f'{recall:.3f}', ha='center', va='bottom')
+        # Recall history 그래프 설정 (있는 경우)
+        if has_recall_history:
+            # 이미 axes[1, 1]에서 recall history를 그렸으므로 추가 설정만
+            pass
+    else:
+        # Recall 정보가 없는 경우 빈 축들 숨기기
+        if has_recall or has_recall_history:
+            # 2x3 레이아웃인 경우
+            pass
+        else:
+            # 2x2 레이아웃인 경우는 이미 처리됨
+            pass
     
     plt.tight_layout()
     

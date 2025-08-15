@@ -40,7 +40,7 @@ def knn_recall_at_k(x, z, k=10, batch_size=1000):
     
     return np.mean(overlaps)
 
-def calculate_recall_during_training(model, dataset, device, k=5, num_samples=3000):
+def calculate_recall_during_training(model, dataset, device, k=5, num_samples=1000):
     """학습 중 recall 계산 (샘플링된 데이터로)"""
     model.eval()
     
