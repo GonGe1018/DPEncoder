@@ -235,6 +235,7 @@ for epoch in range(epochs):
         total_pair += (pairdist_loss.item() if isinstance(pairdist_loss, torch.Tensor) else pairdist_loss) * bs
         n += bs
     
+    # 에포크 시간 측정 (KNN 계산 전에 완료)
     epoch_end_time = time.time()
     epoch_duration = epoch_end_time - epoch_start_time
     cumulative_time = epoch_end_time - training_start_time
@@ -281,7 +282,7 @@ for epoch in range(epochs):
         save_start_time = time.time()
         print(f"  ├─ Saving checkpoint at epoch {epoch+1}...")
         
-        # KNN Recall 계산
+        # KNN Recall 계산 (학습 시간과 별도로 측정)
         print(f"  ├─ Calculating KNN Recall@{k}...")
         recall_start_time = time.time()
         current_recall = calculate_recall_during_training(model, dataset, device, k=k)
@@ -303,20 +304,24 @@ for epoch in range(epochs):
         checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_epoch_{epoch+1:03d}.pth")
         torch.save(checkpoint, checkpoint_path)
         save_duration = time.time() - save_start_time
-        print(f"  └─ Checkpoint saved in {save_duration:.2f}s")
+        print(f"  └─ Checkpoint saved in {save_duration:.2f}s (recall calc: {recall_duration:.2f}s)")
     
     # 최신 모델은 매 에포크마다 업데이트
     torch.save(model.state_dict(), os.path.join(checkpoint_dir, "latest_model.pth"))
     print()  # 에포크 간 구분을 위한 빈 줄
 
-# 전체 학습 완료 시간
-training_end_time = time.time()
-total_training_time = training_end_time - training_start_time
+# 전체 학습 완료 시간 (순수 학습 시간만, KNN 계산 시간 제외)
+# cumulative_time은 마지막 에포크까지의 순수 학습 시간
+pure_training_time = train_history["cumulative_time"][-1] if train_history["cumulative_time"] else 0
 
 # 최종 학습 히스토리에 전체 시간 정보 추가
 train_history["training_end_time"] = datetime.now().isoformat()
-train_history["total_training_time_seconds"] = total_training_time
-train_history["total_training_time_formatted"] = str(timedelta(seconds=int(total_training_time)))
+train_history["pure_training_time_seconds"] = pure_training_time
+train_history["pure_training_time_formatted"] = str(timedelta(seconds=int(pure_training_time)))
+
+# 호환성을 위해 기존 필드도 유지 (순수 학습 시간으로)
+train_history["total_training_time_seconds"] = pure_training_time
+train_history["total_training_time_formatted"] = str(timedelta(seconds=int(pure_training_time)))
 
 # 시간 통계 계산
 total_epochs = len(train_history["epoch_times"])
@@ -337,7 +342,7 @@ with open(os.path.join(checkpoint_dir, "train_history.json"), "w") as f:
 
 print("="*80)
 print(f"🎉 Training completed! 🎉")
-print(f"Total training time: {str(timedelta(seconds=int(total_training_time)))}")
+print(f"Pure training time: {str(timedelta(seconds=int(pure_training_time)))}")
 print(f"Average time per epoch: {avg_epoch_time:.2f}s")
 print(f"Fastest epoch: {min_epoch_time:.2f}s | Slowest epoch: {max_epoch_time:.2f}s")
 print(f"All checkpoints saved in: {checkpoint_dir}")

@@ -121,7 +121,7 @@ def plot_training_curves(train_history, config, save_path=None, recall=None, rec
         if recall is not None:
             summary_text += f'\nFinal Recall: {recall:.4f}'
         
-        # 시간 정보 추가
+        # 시간 정보 추가 (순수 학습 시간 우선 사용)
         summary_text += '\n' + '='*20 + '\nTiming Info:\n'
         if 'time_statistics' in train_history:
             stats = train_history['time_statistics']
@@ -135,10 +135,15 @@ def plot_training_curves(train_history, config, save_path=None, recall=None, rec
             summary_text += f'Avg: {avg_time:.2f}s/epoch\n'
             summary_text += f'Range: {min_time:.2f}s - {max_time:.2f}s\n'
         
-        if 'cumulative_time' in train_history and len(train_history['cumulative_time']) > 0:
+        # 총 시간 표시 (순수 학습 시간 우선)
+        if 'pure_training_time_formatted' in train_history:
+            summary_text += f'Pure Training: {train_history["pure_training_time_formatted"]}'
+        elif 'total_training_time_formatted' in train_history:
+            summary_text += f'Total: {train_history["total_training_time_formatted"]}'
+        elif 'cumulative_time' in train_history and len(train_history['cumulative_time']) > 0:
             total_seconds = train_history['cumulative_time'][-1]
             total_time_str = str(timedelta(seconds=int(total_seconds)))
-            summary_text += f'Total: {total_time_str}'
+            summary_text += f'Pure Training: {total_time_str}'
         
         axes[1, 2].text(0.5, 0.5, summary_text, 
                        horizontalalignment='center', verticalalignment='center', 
@@ -178,17 +183,19 @@ def print_experiment_summary(config, train_history, recall=None):
         print(f"  - Tau (temperature): {config['tau']}")
     print()
     
-    # 시간 정보 표시
+    # 시간 정보 표시 (순수 학습 시간 우선)
     if 'epoch_times' in train_history and len(train_history['epoch_times']) > 0:
         print("Training Time Information:")
         
-        # 총 학습 시간 계산
-        if 'total_training_time_formatted' in train_history:
+        # 총 학습 시간 계산 (순수 학습 시간 우선)
+        if 'pure_training_time_formatted' in train_history:
+            print(f"  - Pure Training Time: {train_history['pure_training_time_formatted']}")
+        elif 'total_training_time_formatted' in train_history:
             print(f"  - Total Training Time: {train_history['total_training_time_formatted']}")
         elif 'cumulative_time' in train_history and len(train_history['cumulative_time']) > 0:
             total_seconds = train_history['cumulative_time'][-1]
             total_time_str = str(timedelta(seconds=int(total_seconds)))
-            print(f"  - Total Training Time: {total_time_str}")
+            print(f"  - Pure Training Time: {total_time_str}")
         
         # 시간 통계
         if 'time_statistics' in train_history:
@@ -545,27 +552,30 @@ def plot_comparison(experiment_data):
                 avg_time = sum(epoch_times) / len(epoch_times)
                 summary_text += f"  Avg: {avg_time:.2f}s/epoch\n"
             
-            # 총 학습 시간 계산 (여러 방법 시도)
+            # 총 학습 시간 계산 (순수 학습 시간 우선)
             total_time_shown = False
-            if 'total_training_time_formatted' in train_history:
+            if 'pure_training_time_formatted' in train_history:
+                summary_text += f"  Pure: {train_history['pure_training_time_formatted']}\n"
+                total_time_shown = True
+            elif 'total_training_time_formatted' in train_history:
                 summary_text += f"  Total: {train_history['total_training_time_formatted']}\n"
                 total_time_shown = True
             elif 'cumulative_time' in train_history and len(train_history['cumulative_time']) > 0:
                 total_seconds = train_history['cumulative_time'][-1]
                 if total_seconds > 0:
                     total_time_str = str(timedelta(seconds=int(total_seconds)))
-                    summary_text += f"  Total: {total_time_str}\n"
+                    summary_text += f"  Pure: {total_time_str}\n"
                     total_time_shown = True
             elif 'epoch_times' in train_history and len(train_history['epoch_times']) > 0:
                 # epoch_times로부터 총 시간 계산
                 total_seconds = sum(train_history['epoch_times'])
                 if total_seconds > 0:
                     total_time_str = str(timedelta(seconds=int(total_seconds)))
-                    summary_text += f"  Total: {total_time_str}\n"
+                    summary_text += f"  Pure: {total_time_str}\n"
                     total_time_shown = True
             
             if not total_time_shown:
-                summary_text += f"  Total: N/A\n"
+                summary_text += f"  Time: N/A\n"
             
             summary_text += "\n"
         
@@ -631,27 +641,30 @@ def plot_comparison(experiment_data):
             print(f"  Average Time per Epoch: {avg_time:.2f}s")
             print(f"  Time Range: {min_time:.2f}s - {max_time:.2f}s")
         
-        # 총 학습 시간 계산 (여러 방법 시도)
+        # 총 학습 시간 계산 (순수 학습 시간 우선)
         total_time_shown = False
-        if 'total_training_time_formatted' in train_history:
+        if 'pure_training_time_formatted' in train_history:
+            print(f"  Pure Training Time: {train_history['pure_training_time_formatted']}")
+            total_time_shown = True
+        elif 'total_training_time_formatted' in train_history:
             print(f"  Total Training Time: {train_history['total_training_time_formatted']}")
             total_time_shown = True
         elif 'cumulative_time' in train_history and len(train_history['cumulative_time']) > 0:
             total_seconds = train_history['cumulative_time'][-1]
             if total_seconds > 0:
                 total_time_str = str(timedelta(seconds=int(total_seconds)))
-                print(f"  Total Training Time: {total_time_str}")
+                print(f"  Pure Training Time: {total_time_str}")
                 total_time_shown = True
         elif 'epoch_times' in train_history and len(train_history['epoch_times']) > 0:
             # epoch_times로부터 총 시간 계산
             total_seconds = sum(train_history['epoch_times'])
             if total_seconds > 0:
                 total_time_str = str(timedelta(seconds=int(total_seconds)))
-                print(f"  Total Training Time: {total_time_str}")
+                print(f"  Pure Training Time: {total_time_str}")
                 total_time_shown = True
         
         if not total_time_shown:
-            print(f"  Total Training Time: N/A")
+            print(f"  Training Time: N/A")
         
         print()
 
